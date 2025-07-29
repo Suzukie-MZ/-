@@ -1,16 +1,10 @@
-[一看就会 Android框架DataBinding的使用与封装Android中DataBinding的封装 先简单的介绍 - 掘金](https://juejin.cn/post/7098510891187961869?searchId=20250724103946B0CEE6D560518C803AA9#heading-2)
-
-[用Kotlin Flow解决Android开发中的痛点问题本文将通过实际业务场景阐述如何使用Kotlin Flow解决A - 掘金](https://juejin.cn/post/7031726493906829319?searchId=20250724161730F3FCC1BCAE2C0BA197C8)
-
-
+[一看就会 Android框架DataBinding的使用与封装Android中DataBinding的封装 先简单的介绍 - 掘金](https://juejin.cn/post/7098510891187961869?searchId=20250724103946B0CEE6D560518C803AA9#heading-2) [用Kotlin Flow解决Android开发中的痛点问题本文将通过实际业务场景阐述如何使用Kotlin Flow解决A - 掘金](https://juejin.cn/post/7031726493906829319?searchId=20250724161730F3FCC1BCAE2C0BA197C8)
 
 [MVVM 进阶版：MVI 架构了解一下~MVVM架构被官方推荐，成为Android开发中的主流架构。不过软件开发中没有银 - 掘金](https://juejin.cn/post/7022624191723601928?searchId=20250724211452DE3DCC033022757983EF)
 
-
+[OkHttp源码之深度解析（五）——CacheInterceptor详解：缓存机制“我报名参加金石计划1期挑战——瓜分1 - 掘金](https://juejin.cn/post/7142894768539271198)
 
 mvi 事件流驱动 代理类 吸附组件（点击事件分发拦截处理，自定义view（添加动画效果）） animation动画效果 flow流 rxjava databinding okhttp拦截器 retrofit disposable自动处理rxjava关闭 eventbus自动根据生命周期注册和取消 mmkv handler webview
-
-
 
 桌面小组件：支持的view种类少，且不能自定义view
 
@@ -35,19 +29,12 @@ AppWidgetManager.getInstance(context).updateAppWidget(appWidgetIds, remoteViews)
   2.2.最后一个相同AppWidget：会先依次调用APPWIDGET_DELETED->APPWIDGET_DISABLED
 
 - c.系统自动更新AppWidget：会调用APPWIDGET_UPDATE
-  
-  
-  
 
 小组件内启动前台服务
 
 自动拆装箱：集合类型只能存储对象类型的数据，而基本数据类型不能直接作为集合元素
 
 原子性，可见性，一致性
-
-
-
-
 
 ## 1. 事件分发流程简述
 
@@ -129,11 +116,7 @@ parentView.setTouchDelegate(new TouchDelegate(rect, targetView));
 
 ---
 
-
-
-
-
-handler -> Looper ->  thread
+handler -> Looper -> thread
 
                                        messagequeue -> idlehandler （接口）
 
@@ -243,8 +226,6 @@ Handler.dispatchMessage(msg) → Handler.handleMessage(msg)
 
 **确保每次空闲只会处理一遍idlehandler，取出前x个任务的任务处理**
 
-
-
 ## 1. 基本概念
 
 - **Binder**：一种基于 C/S（客户端/服务端）架构的 IPC 机制。
@@ -342,8 +323,6 @@ IMyService service = IMyService.Stub.asInterface(binder);
 service.sayHello();
 ```
 
-
-
 ## RecyclerView 如何复用视图？
 
 ### 1. 传统 ListView 的问题
@@ -418,8 +397,6 @@ adapter.onBindViewHolder(holder, position);
 ---
 
 activity销毁时消除messagequeue中所有任务
-
-
 
 ## 1. 非静态内部类/匿名类持有外部类引用
 
@@ -544,8 +521,6 @@ registerReceiver(receiver, filter);
 - 使用 WeakReference、ApplicationContext 等方式降低泄漏风险
 - 利用 LeakCanary 等工具检测泄漏
 
-
-
 你问的是“监听器、回调未解除注册”这一类内存泄漏中的对象（如 BroadcastReceiver、EventBus、View.OnClickListener、ContentObserver 等），**在什么情况下才会销毁**。下面详细说明：
 
 ---
@@ -602,3 +577,37 @@ registerReceiver(receiver, filter);
 **否则，只要有引用存在，对象就不会被 GC 回收，容易导致内存泄漏。**
 
 ---
+
+序列号作用
+
+## 1. 唯一标识每个字节的数据
+
+- TCP是面向字节流的协议，数据在传输过程中会被分割成多个报文段。
+- 每个报文段都有一个序列号（Sequence Number），**用于唯一标识该报文段中第一个字节的数据在整个数据流中的位置**。
+
+---
+
+## 2. 保证数据的有序性和完整性
+
+- 接收方根据序列号可以将收到的数据按顺序重组，即使数据包乱序到达，也能正确还原原始数据流。
+- 如果某个序列号的数据丢失，接收方可以通过ACK（确认号）通知发送方重传。
+
+---
+
+## 3. 防止数据包重复和失效连接请求的干扰
+
+- 每次建立连接时，双方都会选择一个**初始序列号（ISN, Initial Sequence Number）**，这个值通常是随机生成的。
+- 这样可以防止历史连接中的旧数据包被误认为是当前连接的数据，提升安全性和可靠性。
+
+---
+
+## 4. 支持流量控制和拥塞控制
+
+- 通过序列号和确认号，TCP可以实现滑动窗口机制，进行流量控制和拥塞控制，保证网络传输的效率和稳定性。
+
+---
+
+## 5. SYN序列号在三次握手中的作用
+
+- 在三次握手时，客户端和服务器分别发送自己的SYN序列号，告诉对方“我准备从这个序列号开始发送数据”。
+- 对方收到后，用ACK确认这个序列号，双方就能正确追踪和管理后续的数据传输。
