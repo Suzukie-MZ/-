@@ -4,6 +4,8 @@
 
 [OkHttp源码之深度解析（五）——CacheInterceptor详解：缓存机制“我报名参加金石计划1期挑战——瓜分1 - 掘金](https://juejin.cn/post/7142894768539271198)
 
+[Linux 进程间通信（IPC）总结 - huansky - 博客园](https://www.cnblogs.com/huansky/p/13170125.html)
+
 mvi 事件流驱动 代理类 吸附组件（点击事件分发拦截处理，自定义view（添加动画效果）） animation动画效果 flow流 rxjava databinding okhttp拦截器 retrofit disposable自动处理rxjava关闭 eventbus自动根据生命周期注册和取消 mmkv handler webview
 
 桌面小组件：支持的view种类少，且不能自定义view
@@ -611,3 +613,37 @@ registerReceiver(receiver, filter);
 
 - 在三次握手时，客户端和服务器分别发送自己的SYN序列号，告诉对方“我准备从这个序列号开始发送数据”。
 - 对方收到后，用ACK确认这个序列号，双方就能正确追踪和管理后续的数据传输。
+
+进程隔离：虚拟内存地址
+
+进程间通信方式：管道通信，共享内存，消息队列
+
+binder通信机制：client ，service，servicemanager，binder驱动
+
+binder内存管理：mmap内存映射
+
+设计模式 ：单列模式，工厂模式，建造者模式，观察者模式，责任链模式，recyclerview
+
+mvc, mvp ,mvvm,mvi
+
+## 2. 为什么只有“原位置”和“原位置+oldCap”？
+
+### **原理分析**
+
+假设原数组长度为 oldCap，扩容后新数组长度为 newCap = 2 × oldCap。
+
+对于每个元素，原来的下标是： $$ index_{old} = hash & (oldCap - 1) $$
+
+扩容后，下标变为： $$ index_{new} = hash & (newCap - 1) $$
+
+由于 newCap = 2 × oldCap，所以 newCap - 1 = 2 × oldCap - 1 = (oldCap << 1) - 1。
+
+#### **二进制分析**
+
+- oldCap - 1: 低位全1（比如 oldCap=16，oldCap-1=15，二进制 0000 1111）
+- newCap - 1: 比 oldCap-1 多一位1（比如 newCap=32，newCap-1=31，二进制 0001 1111）
+
+**hash & (newCap - 1)** 其实就是比 hash & (oldCap - 1) 多考虑了一位（oldCap位）。
+
+- 如果 hash 的第 oldCap 位是 0，index_new = index_old
+- 如果 hash 的第 oldCap 位是 1，index_new = index_old + oldCap
