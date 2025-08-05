@@ -647,3 +647,250 @@ mvc, mvp ,mvvm,mvi
 
 - 如果 hash 的第 oldCap 位是 0，index_new = index_old
 - 如果 hash 的第 oldCap 位是 1，index_new = index_old + oldCap
+
+
+
+flow
+
+协程异常处理
+
+sharedflow 热流，一对多
+
+channel 无订阅者时挂起，保留事件，一对一
+
+MVI 对比MVVM的区别主要在哪 ？state，action ，effect
+
+1. MVVM并没有约束View层与ViewModel的交互方式，具体来说就是View层可以随意调用ViewModel中的方法，而MVI架构下ViewModel的实现对View层屏蔽，只能通过发送Intent来驱动事件。
+2. MVVM架构并不强调对表征UI状态的Model值收敛，并且对能影响UI的值的修改可以散布在各个可被直接调用的方法内部。而MVI架构下，Intent是驱动UI变化的唯一来源，并且表征UI状态的值收敛在一个变量里
+
+flow操作符
+
+如使用flowOn操作符切换协程上下文、使用buffer、conflate操作符处理背压、使用debounce操作符实现防抖、使用combine操作符实现flow的组合等等
+
+1. flowOn —— 切换上游执行线程
+
+---
+
+• 作用：把 flow 上游（生产阶段）的执行上下文切换到指定协程调度器；下游继续使用原调度器。  
+• 典型场景：在 IO 线程读取文件／网络，然后在 UI 线程收集并渲染。
+
+示例：
+
+```kotlin
+val flow = flow {
+    repeat(5) {
+        emit(it)
+        delay(100)        // 模拟耗时 IO
+    }
+}.flowOn(Dispatchers.IO)  // 上游放到 IO 线程执行
+
+scope.launch(Dispatchers.Main) {   // 下游在 Main/UI 线程
+    flow.collect { value ->
+        println("collect $value on ${Thread.currentThread().name}")
+    }
+}
+```
+
+---
+
+2. buffer —— 生产者-消费者解耦（背压缓冲）
+
+---
+
+• 作用：给流加一个缓冲区，并在不同调度器之间并发执行；生产者和消费者不用严格一一对应等待。  
+• 典型场景：上游很快、下游很慢，想通过缓冲区抗一下“背压”。
+
+示例（未 buffer 与 buffer 对比）：
+
+```kotlin
+val fastProducer = flow {
+    repeat(10) {
+        emit(it)
+        println("emit $it")
+    }
+}.onEach { delay(50) }              // 上游 50 ms 产生一次
+  .flowOn(Dispatchers.Default)
+
+// 无 buffer：每次 emit 都要等下游处理完成
+fastProducer.collect { value ->
+    delay(200)                      // 下游处理较慢
+    println("collect $value")
+}
+
+// buffer：下游慢、上游可继续发，最多缓存默认 64 个
+fastProducer.buffer()
+    .collect { value ->
+        delay(200)
+        println("collect $value")
+    }
+```
+
+---
+
+3. conflate —— 最新值覆盖旧值
+
+---
+
+• 作用：与 buffer 类似也是解耦背压，但是只保留缓冲区的“最新”元素；中间值被丢弃。  
+• 典型场景：UI 刷新、进度条：只需要最新状态，不必处理全部历史。
+
+示例：
+
+```kotlin
+flow {
+    repeat(5) {
+        emit(it)           // 0,1,2,3,4
+        delay(50)
+    }
+}
+.conflate()                // 或 .buffer(Channel.CONFLATED)
+.collect { value ->
+    delay(150)             // 消费者慢
+    println("receive $value")   // 至多打印 0, ? , 4
+}
+```
+
+---
+
+4. debounce —— 静默一段时间后才发射
+
+---
+
+• 作用：当上游持续快速发射时，只在“最近一次值产生后经过指定时间都没有新值”时才真正发射；常用于搜索框输入防抖。  
+• 典型场景：文本输入、按钮点击、滚动监听等 UI 防抖。
+
+示例（300 ms 防抖）：
+
+```kotlin
+val queryFlow = callbackFlow<String> {
+    // 假设 editText.addTextChangedListener { trySend(it.toString()) }
+}
+
+queryFlow
+    .debounce(300)          // 300 ms 内有新输入就重置计时
+    .collect { keyword ->
+        println("Start searching: $keyword")
+    }
+```
+
+---
+
+5. combine —— 多个 Flow 按“最新”配对
+
+---
+
+• 作用：把多个 Flow 的“最新值”组合成一个新值，只要任意一个 Flow 发射了新值就触发。  
+• 对比：
+
+- zip：必须两个 Flow 同时拥有“下一对”元素才发射，一一配对。
+- combine：类似 RxJava 的 combineLatest，谁先来都行，用彼此的“最新”元素。
+
+示例（用户名+密码输入校验）：
+
+```kotlin
+val usernameFlow = callbackFlow<String> { /* ... */ }
+val passwordFlow = callbackFlow<String> { /* ... */ }
+
+usernameFlow
+    .combine(passwordFlow) { u, p -> u to p }  // 也可写 combine(passwordFlow) { u, p -> "$u:$p" }
+    .collect { (u, p) ->
+        val enable = u.isNotBlank() && p.length >= 6
+        loginButton.isEnabled = enable
+    }
+```
+
+---
+
+## 对比速查
+
+• flowOn：只负责切换“上游”协程上下文，不解决背压。  
+• buffer：建立队列，完整保留队列中所有元素。  
+• conflate：建立大小为 1 的“最新值”缓冲区，中间值会被丢弃。  
+• debounce：基于时间窗口，只有停顿期到来才发射。  
+• combine：把多个 Flow 的“最新值”实时合并
+
+1. 协程是什么  
+   • Kotlin 协程是一种轻量级的并发实现，可看作“可挂起的函数”。  
+   • 相比线程，协程的创建和切换开销小得多，可在同一线程上成千上万地运行。  
+   • 协程依赖于挂起函数和协程调度器，实现非阻塞式的并发逻辑。
+
+2. 基本概念  
+   • 挂起函数（suspend）：用 suspend 关键字修饰，可在协程内“挂起”当前执行并让出线程。  
+   • 协程作用域（CoroutineScope）：决定协程的生命周期，常见有 GlobalScope、CoroutineScope、lifecycleScope 等。  
+   • 协程构建器：
+   
+   - launch：返回 Job，不携带结果，侧重“做某事”。
+   - async：返回 Deferred，可通过 await() 获取结果，侧重“计算某值”。
+   - runBlocking：阻塞当前线程，通常仅在 main 方法或单元测试中使用。  
+     • 调度器（Dispatcher）：
+   - Dispatchers.Default：适合 CPU 密集型任务（默认线程池）。
+   - Dispatchers.IO：适合 I/O 密集型任务，如文件/网络操作。
+   - Dispatchers.Main：Android UI 线程（仅限 Android）。
+   - Dispatchers.Unconfined：不受限线程，先在当前线程执行，遇到挂起后再根据挂起点的线程继续执行。
+
+3. 典型示例
+
+```kotlin
+fun main() = runBlocking {
+    val job1 = launch {
+        repeat(5) { i ->
+            println("launch: $i")
+            delay(200) // 挂起 200 ms，而不是阻塞线程
+        }
+    }
+
+    val deferred = async(Dispatchers.Default) {
+        // 计算 Fibonacci(30) 之类的 CPU 密集型任务
+        fib(30)
+    }
+
+    println("Fibonacci = ${deferred.await()}") // 等待结果
+    job1.join() // 等待子协程结束
+}
+
+// 递归斐波那契
+fun fib(n: Int): Int = if (n <= 1) n else fib(n - 1) + fib(n - 2)
+```
+
+4. 取消与异常处理  
+   • 协程可通过 Job.cancel()、CoroutineScope.cancel() 等方式取消。  
+   • 挂起点会定期检查协程是否被取消并抛出 CancellationException。  
+   • try/catch/finally 捕获异常并可在 finally 中调用 coroutineContext.cancel()。（注意：CancellationException 通常会被忽略，需要显式处理其他异常。）
+
+```kotlin
+val job = launch {
+    try {
+        repeat(1000) { i ->
+            println("I'm sleeping $i ...")
+            delay(500)
+        }
+    } finally {
+        println("Finally, I'm cancelled")
+    }
+}
+delay(1300)
+job.cancelAndJoin()
+```
+
+5. 结构化并发  
+   • 子协程默认继承父作用域，父作用域取消时会自动取消所有子协程。  
+   • 使用 coroutineScope { … } 或 supervisorScope { … } 管理协程层级可确保异常正确传播和资源自动回收。
+
+6. Flow（响应式数据流）  
+   • Flow 用于异步数据流，支持背压、取消、异常处理。  
+   • 常用操作符：map、filter、collect、buffer、conflate、flatMapMerge 等。
+
+```k
+fun simpleFlow() = flow {
+    for (i in 1..3) {
+        delay(100)
+        emit(i)
+    }
+}
+
+runBlocking {
+    simpleFlow()
+        .map { it * it }
+        .collect { println(it) }
+}
+```
