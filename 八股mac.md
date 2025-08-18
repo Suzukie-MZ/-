@@ -648,8 +648,6 @@ mvc, mvp ,mvvm,mvi
 - 如果 hash 的第 oldCap 位是 0，index_new = index_old
 - 如果 hash 的第 oldCap 位是 1，index_new = index_old + oldCap
 
-
-
 flow
 
 协程异常处理
@@ -894,3 +892,180 @@ runBlocking {
         .collect { println(it) }
 }
 ```
+
+
+
+apk包优化手段
+
+Android APK 减包 
+
+
+
+## 1. 概述
+
+经过10多年的发展，手机应用逐渐向大而全的方向进行发展，导致 APK 包的大小不断增大，以 QQ 音乐为例，已经从最开始单纯的音乐播放器到现在集音乐、直播、游戏、宠物、音乐空间于一体，这些都推动着 APK 不断膨胀。
+
+2. APK 组成
+
+![](https://km.woa.com/asset/9447d92ad76d4f879733d8881fc056d1?height=482&width=522&imageMogr2/thumbnail/1540x%3E/ignore-error/1)
+
+可以看到 APK 的组成主要由上述几部分组成，那么针对 APK 大小的优化也将围绕着上述几个部分展开。
+
+3. APK 大小优化
+
+APK 优化一直是 Android 性能优化的一个方向，根据 Google Play 发布的数据，每减少 10M 的 APK 大小在不同地区所带来的用户增长率如下：
+
+![](https://km.woa.com/asset/4c60205068284ab09f353baa06a39c37?height=724&width=1198&imageMogr2/thumbnail/1540x%3E/ignore-error/1)
+
+> 可以看到每减少 10M 的 APK 大小，平均可以带来 1.6% 的用户转化率。
+
+针对 APK 大小的优化无外乎 3 个方向：
+
+> 1. 删除  
+> 2. 压缩  
+> 3. 动态加载
+
+接下来我们从 APK 的各个组成部分来分别谈谈格各自的优化手段。
+
+3.1 res & resources.arsc 资源优化
+
+
+
+3.1.1 无用资源清理
+
+```javascript
+release {
+    minifyEnabled true // 开启代码混淆
+    shrinkResources true // 去掉无用资源，需要依赖 minifyEnabled = true，因为要知道是否被引用
+}
+```
+
+3.1.2 多语言优化
+
+```javascript
+android {
+    defaultConfig {
+         ...
+        resConfigs "en" // 只保留英文
+    }
+}
+```
+
+打包的时候只会保留指定的语言，如果本身应用只是用于国内，这里也最好加上，因为 Android 很多系统库适配了多语言，**加上这个可以优化掉其他第三方库中包含的多语言信息**。
+
+#### 3.1.3 资源压缩
+
+[👉 AndResGuard Github 地址](https://github.com/shwenzhang/AndResGuard)，AndResGuard 实现了如下功能：
+
+> 1. 通过 md5 对比，来判断重复文件，支持合并重复资源  
+> 2. 对资源文件名称进行缩短  
+> 3. 对 APK 中的内容采用 7zip 压缩
+
+通过上述优化，APK 优化可以达到非常可观的收益。
+
+
+
+**3.1.4 图片压缩**
+
+图片绝对是整个工程占比非常大的资源，因此针对图片压缩是一个非常好的减包手段，QQ 音乐采用了 [pngquant](https://pngquant.org/) 与 [cwebp](https://developers.google.com/speed/webp/docs/cwebp?hl=zh-cn) 两种方式对工程中的图片进行压缩优化。
+
+> pngquant：用于压缩 png 图片  
+> cwebp：将 png、jpg 图片转成 webp 图片格式
+
+具体研究可以参考：[QQ音乐Android端WebP探索之路](https://km.woa.com/group/34300/articles/show/453190)
+
+
+
+**3.1.5 资源动态加载**
+
+普遍来说 res 中的资源应该比较小，如果太大这个从源头上就应该想办法去优化了，单独对这里做动态加载也是可以，但是不如插件化来的彻底。
+
+#### 3.1.6 资源二进制精简
+
+可以参考字节的研究文章：[抖音 Android 包体积优化探索：资源二进制格式的极致精简](https://juejin.cn/post/7096077413871943688)
+
+这边文章是基于 AndResGuard 上对二进制资源做了更加深入的探究，同时对 layout 也进行了优化，从字节优化效果来看挺不错。
+
+### 3.2 assets 资源优化
+
+这个部分其实跟 res 部分的优化差不多，也是可以对其中的部分图片（比如 lottie 图片资源）进行压缩，然后针对资源进行动态加载，这里不多做赘述。
+
+### 3.3 lib 资源优化
+
+#### 3.3.1 保留一种 ABI
+
+
+
+目前 Android 官网上也更新了最新 ABI 信息：
+
+
+
+[👉 NDK各版本发布时间](https://developer.android.com/ndk/downloads/revision_history?hl=zh-cn)
+
+而一部设备往往只需要保留一套即可，通常我们只需要保留 `armeabi-v7a`，可以通过 NDK 的配置即可：
+
+```javascript
+ndk {
+    abiFilters 'armeabi-v7a'
+}
+```
+
+目前很多应用市场也支持 arm64 的包上传了，这里根据需要调整即可。
+
+#### 3.3.2 so 动态加载
+
+由于 Android 支持通过 `System.load(path: String)`去加载对应路径上的 so，所以基于此我们实现了一套自动化的 so 动态加载配置：
+
+```javascript
+SoUpload {
+    // 非本地环境才打开
+    enable = !isLocalEnv
+
+    // 前面代表对应的 so 名称，后面代表是否要从 APK 从删除
+    soUploadMap = [
+            "ijkplayer": false,
+            "tensorflowlite_jni": true
+    ]
+}
+```
+
+上述 soUploadMap 中配置的 so 都会在打包的时候自动上传远端，如果配置的是 true 则表示对应的 so 会在打包阶段被删除。
+
+> 针对 false 的情况是我们发现一些 so 明明已经被打到包里了，但是还是会有本地找不到从而异常的场景，这里做个保底。
+
+#### 3.3.3 so 编译 flag 优化
+
+可以参考美团在这方面做的研究：[Android对so体积优化的探索与实践](https://tech.meituan.com/2022/06/02/meituans-technical-exploration-and-practice-of-android-so-volume-optimization.html)
+
+#### 3.3.4 so 采用 7zip 压缩
+
+被打包到 APK 中的 so 虽然是被压缩过的，但是我们其实可以考虑用更高压缩率的 7zip 进行压缩，之前有测试过将 QQ 音乐所有的 so 进行 7zip 压缩后，大概可以减少 `15M` 左右的大小，只不过在加载时需要我们额外做一步解压处理。
+
+> 1. 实现 so 新的加载方式，支持加载时解压缩 7zip 的 so  
+> 2. 替换所有的 System.loadLibrary 为我们新的加载方法
+
+当然针对重要或者性能要求比较高的 so 要慎重，其他的可以做个解压后的缓存，7zip 压缩配合动态加载其实是一个不错的选择。
+
+### 3.4 dex 大小优化
+
+#### 3.4.1 代码混淆
+
+```javascript
+release {
+    minifyEnabled true // 开启代码混淆
+}
+```
+
+默认开启 R8，R8 相较于 D8 优化的效果更好。
+
+#### 3.4.2 字节码优化
+
+参考：[抖音Android包体积优化探索：从Class字节码入手精简DEX体积](https://mp.weixin.qq.com/s/npT9MW4TQWH--fKsC_3NCQ)
+
+### 3.5 META-INF 优化
+
+由于 META-INF 中占大头的主要是记录各个文件的 SHA-1 值，通过 AndResGuard 将文件名称缩短后，可以大大减少对应文件中的内容，从而达到优化 META-INF 的目的。
+
+## 4. 后记
+
+Android APK 大小优化已然进入到深水区， 这里介绍了当前针对 APK 优化的各种手段，仅供各位小伙伴参考。
